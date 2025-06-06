@@ -1,0 +1,17 @@
+[project]
+name = "gpt-1"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Milos Svana", email = "milos.svana@mailfence.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+train-tokenizer = "gpt_1.scripts.train_tokenizer:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
