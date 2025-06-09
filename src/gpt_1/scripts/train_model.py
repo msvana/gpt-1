@@ -6,6 +6,7 @@ from gpt_1 import config, utils
 from torch import nn
 from torch.utils.data import DataLoader
 from tokenizers import Tokenizer
+import os
 
 arg_parser = ArgumentParser(description="Train a GPT model on the BookCorpus dataset.")
 arg_parser.add_argument(
@@ -22,6 +23,13 @@ arg_parser.add_argument(
     type=str,
     help="Path to the tokenizer model file.",
 )
+arg_parser.add_argument(
+    "-m",
+    "--model-path",
+    required=False,
+    type=str,
+    help="Path to save the trained model state.",
+)
 
 
 class GPTModel(nn.Module):
@@ -34,9 +42,12 @@ class GPTModel(nn.Module):
         hidden_size: int,
         n_heads: int,
         n_transformers: int,
+        padding_idx: int = 2048,
     ):
         super(GPTModel, self).__init__()
-        self._embedding = nn.Embedding(vocab_size, embedding_size)
+        self._embedding = nn.Embedding(
+            vocab_size, embedding_size, padding_idx=padding_idx
+        )
         self._position_embedding = nn.Embedding(sequence_length, embedding_size)
         self.transformers = nn.ModuleList(
             [
@@ -48,19 +59,23 @@ class GPTModel(nn.Module):
                 for _ in range(n_transformers)
             ]
         )
-        self.fc_out = nn.Linear(embedding_size, vocab_size)
+        self._fc_out = nn.Linear(embedding_size, vocab_size)
+
+        self._position_ids = torch.arange(
+            sequence_length, dtype=torch.long, device=config.DEVICE
+        ).unsqueeze(0)
+
+        self._mask = nn.Transformer.generate_square_subsequent_mask(sequence_length).to(
+            config.DEVICE
+        )
 
     def forward(self, input_sequence: torch.Tensor):
-        input_sequence_size = input_sequence.size(-1)
-
-        mask = torch.nn.Transformer.generate_square_subsequent_mask(
-            input_sequence_size
-        ).to(config.DEVICE)
-
         embedded = self._embedding(input_sequence)
+        position_embedded = self._position_embedding(self._position_ids)
+        embedded += position_embedded
         for transformer in self.transformers:
-            embedded = transformer(embedded, is_causal=True, src_mask=mask)
-        output = self.fc_out(embedded)
+            embedded = transformer(embedded, is_causal=True, src_mask=self._mask)
+        output = self._fc_out(embedded)
         return output
 
 
@@ -77,6 +92,7 @@ def generate_text(
     model.eval()
     text = prompt.lower()
     input_ids = tokenizer.encode(text).ids
+    input_ids = utils.prepad(tokenizer, input_ids, config.SEQUENCE_LENGTH)
 
     for _ in range(max_length):
         input_ids = input_ids[-config.SEQUENCE_LENGTH :]
@@ -87,7 +103,7 @@ def generate_text(
             output = model(input_tensor)
 
         distribution = Categorical(logits=output[:, -1, :])
-        next_token_id = distribution.sample().item()
+        next_token_id = int(distribution.sample().item())
         input_ids.append(next_token_id)
         text += tokenizer.decode([next_token_id]).replace("Ġ", " ").replace("Ċ", "\n")
 
@@ -95,7 +111,11 @@ def generate_text(
 
 
 def train_model(
-    model: GPTModel, data_loader: DataLoader, num_epochs: int, tokenizer: Tokenizer
+    model: GPTModel,
+    data_loader: DataLoader,
+    num_epochs: int,
+    tokenizer: Tokenizer,
+    model_path: str | None = None,
 ):
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -130,11 +150,15 @@ def train_model(
                 average_loss = 0.0
                 model.train()
 
+            if (batch_idx + 1) % config.STORE_FREQUENCY == 0 and model_path:
+                torch.save(model.state_dict(), model_path)
+                print(f"\nModel state saved to {model_path}")
+
 
 def main():
     args = arg_parser.parse_args()
 
-    tokenizer = Tokenizer.from_file(args.tokenizer_path)
+    tokenizer: Tokenizer = Tokenizer.from_file(args.tokenizer_path)
     dataset = utils.BookCorpusDataset(
         args.dataset_path,
         samples_per_chunk=config.SAMPLES_PER_CHUNK,
@@ -152,12 +176,18 @@ def main():
     model = GPTModel(
         config.VOCAB_SIZE,
         config.EMBEDDING_SIZE,
+        config.SEQUENCE_LENGTH,
         config.HIDDEN_SIZE,
         config.N_HEADS,
         config.N_TRANSFORMERS,
+        padding_idx=tokenizer.token_to_id("[PAD]"),
     ).to(config.DEVICE)
 
-    train_model(model, data_loader, config.EPOCHS, tokenizer)
+    if args.model_path and os.path.exists(args.model_path):
+        model.load_state_dict(torch.load(args.model_path, map_location=config.DEVICE))
+        print(f"Model loaded from {args.model_path}")
+
+    train_model(model, data_loader, config.EPOCHS, tokenizer, args.model_path)
 
 
 if __name__ == "__main__":
