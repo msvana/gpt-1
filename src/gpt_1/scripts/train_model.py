@@ -45,6 +45,9 @@ class GPTModel(nn.Module):
         padding_idx: int = 2048,
     ):
         super(GPTModel, self).__init__()
+
+        self._padding_idx = padding_idx
+
         self._embedding = nn.Embedding(
             vocab_size, embedding_size, padding_idx=padding_idx
         )
@@ -55,7 +58,7 @@ class GPTModel(nn.Module):
                     d_model=embedding_size,
                     nhead=n_heads,
                     dim_feedforward=hidden_size,
-                    batch_first=True
+                    batch_first=True,
                 )
                 for _ in range(n_transformers)
             ]
@@ -71,11 +74,17 @@ class GPTModel(nn.Module):
         )
 
     def forward(self, input_sequence: torch.Tensor):
+        src_padding_mask = (input_sequence == self._padding_idx)
         embedded = self._embedding(input_sequence)
         position_embedded = self._position_embedding(self._position_ids)
         embedded += position_embedded
         for transformer in self.transformers:
-            embedded = transformer(embedded, is_causal=True, src_mask=self._mask)
+            embedded = transformer(
+                embedded,
+                is_causal=True,
+                src_mask=self._mask,
+                src_key_padding_mask=src_padding_mask,
+            )
         output = self._fc_out(embedded)
         return output
 
