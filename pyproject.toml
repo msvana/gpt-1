@@ -7,7 +7,6 @@ authors = [{ name = "Milos Svana", email = "milos.svana@mailfence.com" }]
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.2.6",
-    "pytorch-triton-xpu>=3.3.1",
     "tokenizers>=0.21.1",
     "torch>=2.7.1",
 ]
@@ -22,10 +21,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-xpu" }]
-pytorch-triton-xpu = [{ index = "pytorch-xpu" }]
+#torch = [{ index = "pytorch-cuda" }]
+#pytorch-triton-xpu = [{ index = "pytorch-cuda" }]
 
 [[tool.uv.index]]
 name = "pytorch-xpu"
 url = "https://download.pytorch.org/whl/xpu"
 explicit = true
+

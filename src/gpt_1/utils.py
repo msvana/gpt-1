@@ -20,6 +20,7 @@ def text_iterator(dataset_path, chunk_size: int):
 
 def prepad(tokenizer: Tokenizer, ids: list[int], length: int) -> list[int]:
     padding_ids = tokenizer.encode("[PAD]").ids
+    print(padding_ids)
     return (
         padding_ids * (length - len(ids)) + ids if len(ids) < length else ids[-length:]
     )
@@ -54,8 +55,9 @@ class BookCorpusDataset(Dataset):
             should_pad = random.random() < 0.25
 
             if should_pad:
-                how_many_to_pad = random.randint(1, 30)
+                how_many_to_pad = random.randint(1, 100)
                 input_sequence[:how_many_to_pad] = [self._padding_id] * how_many_to_pad
-            next_token = token_ids[end_idx]
 
-        return input_sequence, next_token
+            output_sequence = input_sequence[1:] + [token_ids[end_idx]]
+
+        return input_sequence, output_sequence

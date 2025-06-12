@@ -55,6 +55,7 @@ class GPTModel(nn.Module):
                     d_model=embedding_size,
                     nhead=n_heads,
                     dim_feedforward=hidden_size,
+                    batch_first=True
                 )
                 for _ in range(n_transformers)
             ]
@@ -100,7 +101,7 @@ def generate_text(
             torch.tensor(input_ids, dtype=torch.long).unsqueeze(0).to(config.DEVICE)
         )
         with torch.no_grad():
-            output = model(input_tensor)
+            output = 1.5 * model(input_tensor)
 
         distribution = Categorical(logits=output[:, -1, :])
         next_token_id = int(distribution.sample().item())
@@ -117,8 +118,8 @@ def train_model(
     tokenizer: Tokenizer,
     model_path: str | None = None,
 ):
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.token_to_id("[PAD]"))
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     model.train()
 
     for epoch in range(num_epochs):
@@ -127,25 +128,33 @@ def train_model(
 
         print(f"Epoch {epoch + 1}/{num_epochs}")
 
-        for batch_idx, (input_sequences, next_tokens) in enumerate(data_loader):
+        for batch_idx, (input_sequences, output_sequences) in enumerate(data_loader):
             print(f"Processing batch {batch_idx + 1}/{len(data_loader)}", end="       ")
             optimizer.zero_grad()
             input_sequences = input_sequences.to(config.DEVICE)
-            next_tokens = next_tokens.to(config.DEVICE)
-            outputs = model(input_sequences)[:, -1, :]
-            loss = criterion(outputs, next_tokens)
+            output_sequences = output_sequences.to(config.DEVICE)
+            outputs = model(input_sequences)
+            loss = criterion(
+                outputs.view(-1, config.VOCAB_SIZE + 1), output_sequences.view(-1)
+            )
             loss.backward()
+            optimizer.step()
             batches_processed += 1
             average_loss = (
                 average_loss * (batches_processed - 1) + loss.item()
             ) / batches_processed
 
-            optimizer.step()
             print(f"Loss: {average_loss:.4f}", end="\r")
 
             if (batch_idx + 1) % config.OUTPUT_FREQUENCY == 0:
-                generated = generate_text(model, tokenizer, "Once upon a time", 32)
-                print(f"\nGenerated text: {generated}")
+                generated = generate_text(
+                    model, tokenizer, "Once upon a time there lived", 50
+                )
+                print(f"\nGenerated text:")
+                print("-----")
+                print(generated)
+                print("-----")
+
                 batches_processed = 0
                 average_loss = 0.0
                 model.train()
@@ -159,6 +168,7 @@ def main():
     args = arg_parser.parse_args()
 
     tokenizer: Tokenizer = Tokenizer.from_file(args.tokenizer_path)
+    tokenizer.add_special_tokens(["[PAD]"])
     dataset = utils.BookCorpusDataset(
         args.dataset_path,
         samples_per_chunk=config.SAMPLES_PER_CHUNK,
@@ -174,7 +184,7 @@ def main():
     )
 
     model = GPTModel(
-        config.VOCAB_SIZE,
+        config.VOCAB_SIZE + 1,
         config.EMBEDDING_SIZE,
         config.SEQUENCE_LENGTH,
         config.HIDDEN_SIZE,
