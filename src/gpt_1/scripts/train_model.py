@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from math import e
 
 import torch
 from torch.distributions import Categorical
@@ -45,7 +46,6 @@ class GPTModel(nn.Module):
         padding_idx: int = 2048,
     ):
         super(GPTModel, self).__init__()
-
         self._padding_idx = padding_idx
 
         self._embedding = nn.Embedding(
@@ -85,6 +85,7 @@ class GPTModel(nn.Module):
                 src_mask=self._mask,
                 src_key_padding_mask=src_padding_mask,
             )
+            embedded[embedded.isnan()] = -100000
         output = self._fc_out(embedded)
         return output
 
@@ -110,7 +111,7 @@ def generate_text(
             torch.tensor(input_ids, dtype=torch.long).unsqueeze(0).to(config.DEVICE)
         )
         with torch.no_grad():
-            output = 1.5 * model(input_tensor)
+            output: torch.Tensor = 1.5 * model(input_tensor)
 
         distribution = Categorical(logits=output[:, -1, :])
         next_token_id = int(distribution.sample().item())
@@ -128,7 +129,7 @@ def train_model(
     model_path: str | None = None,
 ):
     criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.token_to_id("[PAD]"))
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=2.5e-6)
     model.train()
 
     for epoch in range(num_epochs):
@@ -157,7 +158,7 @@ def train_model(
 
             if (batch_idx + 1) % config.OUTPUT_FREQUENCY == 0:
                 generated = generate_text(
-                    model, tokenizer, "Once upon a time there lived", 50
+                    model, tokenizer, "Once upon a time there lived a strange", 50
                 )
                 print(f"\nGenerated text:")
                 print("-----")
@@ -182,6 +183,7 @@ def main():
         args.dataset_path,
         samples_per_chunk=config.SAMPLES_PER_CHUNK,
         sequence_length=config.SEQUENCE_LENGTH,
+        padding_id=tokenizer.token_to_id("[PAD]")
     )
 
     data_loader = DataLoader(

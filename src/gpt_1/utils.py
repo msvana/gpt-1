@@ -20,7 +20,6 @@ def text_iterator(dataset_path, chunk_size: int):
 
 def prepad(tokenizer: Tokenizer, ids: list[int], length: int) -> list[int]:
     padding_ids = tokenizer.encode("[PAD]").ids
-    print(padding_ids)
     return (
         padding_ids * (length - len(ids)) + ids if len(ids) < length else ids[-length:]
     )
